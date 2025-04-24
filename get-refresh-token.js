@@ -16,7 +16,7 @@ async function getRefreshToken() {
       scopes: SCOPES,
       keyfilePath: join(process.cwd(), 'credentials.json')
     });
-
+console.log('Authentication successful!', auth);
     // Get credentials including refresh token
     const credentials = auth.credentials;
     
