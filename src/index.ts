@@ -83,8 +83,14 @@ class GoogleWorkspaceServer {
             properties: {
               query: {
                 type: 'string',
-                description: 'Gmail search query (e.g., "from:example@gmail.com has:attachment")',
-                required: true
+                description: 'Gmail search query (e.g., "from:example@gmail.com has:attachment"). Examples:\n' +
+                  '- "from:alice@example.com" (Emails from Alice)\n' +
+                  '- "to:bob@example.com" (Emails sent to Bob)\n' +
+                  '- "subject:Meeting Update" (Emails with "Meeting Update" in the subject)\n' +
+                  '- "has:attachment filename:pdf" (Emails with PDF attachments)\n' +
+                  '- "after:2024/01/01 before:2024/02/01" (Emails between specific dates)\n' +
+                  '- "is:unread" (Unread emails)\n' +
+                  '- "from:@company.com has:attachment" (Emails from a company domain with attachments)',
               },
               maxResults: {
                 type: 'number',
@@ -93,6 +99,51 @@ class GoogleWorkspaceServer {
             },
             required: ['query']
           },
+        },
+        {
+          name: 'get_email',
+          description: 'Get details of a specific email by ID',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'Email ID to fetch details for',
+              },
+            },
+            required: ['id']
+          }
+        },
+        {
+          name: 'get_email_threads',
+          description: 'Get details of email threads',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              maxResults: {
+                type: 'number',
+                description: 'Maximum number of threads to return (default: 10)',
+              },
+              query: {
+                type: 'string',
+                description: 'Search query to filter threads',
+              },
+            },
+          }
+        },
+        {
+          name: 'get_email_thread_details',
+          description: 'Get details of a specific email thread by threadId',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              threadId: {
+                type: 'string',
+                description: 'Email thread ID to fetch details for',
+              },
+            },
+            required: ['threadId']
+          }
         },
         {
           name: 'send_email',
@@ -266,6 +317,12 @@ class GoogleWorkspaceServer {
           return await this.handleListEmails(request.params.arguments);
         case 'search_emails':
           return await this.handleSearchEmails(request.params.arguments);
+        case 'get_email':
+          return await this.handleGetEmail(request.params.arguments);
+        case 'get_email_threads':
+          return await this.handleListEmailThreads(request.params.arguments);
+        case 'get_email_thread_details':
+          return await this.handleGetEmailThreadDetail(request.params.arguments);
         case 'send_email':
           return await this.handleSendEmail(request.params.arguments);
         case 'modify_email':
@@ -310,12 +367,14 @@ class GoogleWorkspaceServer {
           const subject = headers?.find((h) => h.name === 'Subject')?.value || '';
           const from = headers?.find((h) => h.name === 'From')?.value || '';
           const date = headers?.find((h) => h.name === 'Date')?.value || '';
+          const threadId = detail.data.threadId || '';
 
           return {
             id: msg.id,
             subject,
             from,
             date,
+            threadId,
           };
         })
       );
@@ -364,12 +423,14 @@ class GoogleWorkspaceServer {
           const subject = headers?.find((h) => h.name === 'Subject')?.value || '';
           const from = headers?.find((h) => h.name === 'From')?.value || '';
           const date = headers?.find((h) => h.name === 'Date')?.value || '';
+          const threadId = detail.data.threadId || '';
 
           return {
             id: msg.id,
             subject,
             from,
             date,
+            threadId,
           };
         })
       );
@@ -395,10 +456,119 @@ class GoogleWorkspaceServer {
     }
   }
 
+  private async handleGetEmail(args: any) {
+    try {
+      const { id } = args;
+
+      const response = await this.gmail.users.messages.get({
+        userId: 'me',
+        id,
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error fetching email details: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  } 
+
+  private async handleListEmailThreads(args: any) {
+    try {
+      const maxResults = args?.maxResults || 10;
+      const query = args?.query || '';
+
+      const response = await this.gmail.users.threads.list({
+        userId: 'me',
+        maxResults,
+        q: query,
+      });
+
+      const threads = response.data.threads || [];
+      // const threadDetails = await Promise.all(
+      //   threads.map(async (thread) => {
+      //     const detail = await this.gmail.users.threads.get({
+      //       userId: 'me',
+      //       id: thread.id!
+      //     });
+          
+      //     return {
+      //       id: thread.id,
+      //       messages: detail.data.messages,
+      //     };
+      //   })
+      // );
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(threads, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error fetching email threads: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  private async handleGetEmailThreadDetail(args: any) {
+    try {
+      const { threadId } = args;
+
+      const response = await this.gmail.users.threads.get({
+        userId: 'me',
+        id: threadId,
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    } catch (error: any) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error fetching email thread details: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   private async handleSendEmail(args: any) {
     try {
       const { to, subject, body, cc, bcc } = args;
-
+      const utf8subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+      
+      
       // Create email content
       const message = [
         'Content-Type: text/html; charset=utf-8',
@@ -406,9 +576,9 @@ class GoogleWorkspaceServer {
         `To: ${to}`,
         cc ? `Cc: ${cc}` : '',
         bcc ? `Bcc: ${bcc}` : '',
-        `Subject: ${subject}`,
+        `Subject: ${utf8subject}`,
         '',
-        body,
+        '\n\n' + body + '\n\n',
       ].filter(Boolean).join('\r\n');
 
       // Encode the email

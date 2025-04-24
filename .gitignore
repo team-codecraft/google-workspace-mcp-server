@@ -2,3 +2,8 @@ node_modules/
 build/
 *.log
 .env*
+.yarn
+.token
+credentials.json
+yarn.lock
+token.json
